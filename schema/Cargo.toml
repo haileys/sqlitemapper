@@ -1,0 +1,12 @@
+[package]
+name = "sqlitemapper-schema"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cstr = "0.2.11"
+derive_more = "0.99"
+rusqlite = "0.29"
+thiserror = "1.0"
