@@ -1,14 +1,13 @@
 use std::path::PathBuf;
 
 use lazy_static::lazy_static;
-use proc_macro_error::{abort_call_site, abort};
+use proc_macro_error::abort_call_site;
 use proc_macro::{self, TokenStream};
-use proc_macro2::{TokenStream as TokenStream2, Span, Ident};
-use quote::quote;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
-use syn::parse_macro_input;
-use syn::parse::Parse;
+use proc_macro2::{TokenStream as TokenStream2, Span, Ident, Group, Delimiter};
+use quote::{quote, ToTokens};
+use syn::token::Brace;
+use syn::ItemMod;
+use syn::{parse_macro_input, Item, parse_quote};
 use thiserror::Error;
 
 use sqlitemapper_schema::{Schema, LoadError, SqlError, TableColumn};
@@ -46,45 +45,6 @@ fn load_from_env() -> Result<Schema, SchemaError> {
         .map_err(|error| SchemaError::Load { path, error })
 }
 
-struct SchemaInput {
-    _opts: Punctuated<Opt, syn::token::Comma>,
-    // item: ItemMod,
-    // attrs: Attrs,
-    // vis: syn::Visibility,
-    // mod_token: syn::token::Mod,
-    // ident: syn::Ident,
-    // _semi: syn::token::Semi,
-}
-
-impl Parse for SchemaInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        Ok(SchemaInput {
-            _opts: Punctuated::parse_terminated(input)?
-        })
-    }
-}
-
-enum Opt {
-    // Path { value: LitStr },
-}
-
-impl Parse for Opt {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let name = input.parse::<syn::Ident>()?;
-        let _colon = input.parse::<syn::token::Colon>()?;
-        match name.to_string().as_str() {
-            // "path" => {
-            //     Ok(Opt::Path {
-            //         value: input.parse()?,
-            //     })
-            // }
-            name => {
-                abort!(name.span(), "unknown option in sqlitemapper::schema");
-            }
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum SchemaMacroError {
     #[error("Error listing tables: {0}")]
@@ -96,20 +56,38 @@ pub enum SchemaMacroError {
 pub fn schema_impl(input: TokenStream)
     -> TokenStream
 {
-    let _input = parse_macro_input!(input as SchemaInput);
+    let mut input = parse_macro_input!(input as ItemMod);
 
     let schema = current();
 
-    let schema_content = match schema_mod_content(&schema) {
+    let define_items = match schema_mod_content(&schema) {
         Ok(content) => content,
         Err(e) => { abort_call_site!("{}", e); }
     };
 
-    schema_content.into()
+    input.semi = None;
+    match input.content.as_mut() {
+        Some((_, mod_content)) => {
+            mod_content.extend(define_items);
+        }
+        None => {
+            let tokens = define_items.iter()
+                .map(|item| item.into_token_stream())
+                .collect();
+
+            let group = Group::new(Delimiter::Brace, tokens);
+
+            let brace = Brace { span: group.delim_span() };
+
+            input.content = Some((brace, define_items));
+        }
+    }
+
+    input.into_token_stream().into()
 }
 
 fn schema_mod_content(schema: &Schema)
-    -> Result<TokenStream2, SchemaMacroError>
+    -> Result<Vec<Item>, SchemaMacroError>
 {
     let tables = schema.tables()
         .map_err(SchemaMacroError::ListTables)?;
@@ -122,13 +100,13 @@ fn schema_mod_content(schema: &Schema)
                     SchemaMacroError::LoadTableSchema { table, error }
                 })
         })
-        .collect::<Result<TokenStream2, SchemaMacroError>>()?;
+        .collect::<Result<Vec<Item>, SchemaMacroError>>()?;
 
     Ok(table_mods)
 }
 
 fn table_mod(schema: &Schema, table: &str)
-    -> Result<TokenStream2, SqlError>
+    -> Result<Item, SqlError>
 {
     let columns = schema.columns(table)?;
 
@@ -140,7 +118,7 @@ fn table_mod(schema: &Schema, table: &str)
 
     let table_name = Ident::new_raw(table, Span::mixed_site());
 
-    Ok(quote! {
+    Ok(parse_quote! {
         pub mod #table_name {
             #type_aliases
             #primary_key

@@ -4,7 +4,7 @@ pub use from_row::FromRow;
 use std::marker::PhantomData;
 
 use rusqlite::{Params, Connection, Error};
-pub use sqlitemapper_macros::{query, schema};
+pub use sqlitemapper_macros::{__query, schema};
 
 pub struct Query<RowType> {
     sql: &'static str,
