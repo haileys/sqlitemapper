@@ -57,21 +57,27 @@ impl<'a> Statement<'a> {
         }
     }
 
-    pub fn column_database(&self, idx: usize) -> Option<&str> {
+    pub fn origin_database(&self, idx: usize) -> Option<&str> {
         unsafe {
             maybe_cstr(ffi::sqlite3_column_database_name(self.raw.ptr, to_int(idx)))
         }
     }
 
-    pub fn column_table(&self, idx: usize) -> Option<&str> {
+    pub fn origin_table(&self, idx: usize) -> Option<&str> {
         unsafe {
             maybe_cstr(ffi::sqlite3_column_table_name(self.raw.ptr, to_int(idx)))
         }
     }
 
-    pub fn column_origin(&self, idx: usize) -> Option<&str> {
+    pub fn origin_column(&self, idx: usize) -> Option<&str> {
         unsafe {
             maybe_cstr(ffi::sqlite3_column_origin_name(self.raw.ptr, to_int(idx)))
+        }
+    }
+
+    pub fn name(&self, idx: usize) -> Option<&str> {
+        unsafe {
+            maybe_cstr(ffi::sqlite3_column_name(self.raw.ptr, to_int(idx)))
         }
     }
 }

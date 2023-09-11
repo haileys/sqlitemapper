@@ -1,17 +1,17 @@
 use std::path::PathBuf;
 
-use derive_syn_parse::Parse;
 use lazy_static::lazy_static;
-use proc_macro_error::abort_call_site;
+use proc_macro_error::{abort_call_site, abort};
 use proc_macro::{self, TokenStream};
 use proc_macro2::{TokenStream as TokenStream2, Span, Ident};
 use quote::quote;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::parse_macro_input;
+use syn::parse::Parse;
 use thiserror::Error;
 
 use sqlitemapper_schema::{Schema, LoadError, SqlError, TableColumn};
-
-use crate::util::Attrs;
 
 lazy_static! {
     static ref SCHEMA: Result<Schema, SchemaError> = load_from_env();
@@ -46,13 +46,43 @@ fn load_from_env() -> Result<Schema, SchemaError> {
         .map_err(|error| SchemaError::Load { path, error })
 }
 
-#[derive(Parse)]
 struct SchemaInput {
-    attrs: Attrs,
-    vis: syn::Visibility,
-    mod_token: syn::token::Mod,
-    ident: syn::Ident,
-    _semi: syn::token::Semi,
+    _opts: Punctuated<Opt, syn::token::Comma>,
+    // item: ItemMod,
+    // attrs: Attrs,
+    // vis: syn::Visibility,
+    // mod_token: syn::token::Mod,
+    // ident: syn::Ident,
+    // _semi: syn::token::Semi,
+}
+
+impl Parse for SchemaInput {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        Ok(SchemaInput {
+            _opts: Punctuated::parse_terminated(input)?
+        })
+    }
+}
+
+enum Opt {
+    // Path { value: LitStr },
+}
+
+impl Parse for Opt {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let name = input.parse::<syn::Ident>()?;
+        let _colon = input.parse::<syn::token::Colon>()?;
+        match name.to_string().as_str() {
+            // "path" => {
+            //     Ok(Opt::Path {
+            //         value: input.parse()?,
+            //     })
+            // }
+            name => {
+                abort!(name.span(), "unknown option in sqlitemapper::schema");
+            }
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -66,24 +96,16 @@ pub enum SchemaMacroError {
 pub fn schema_impl(input: TokenStream)
     -> TokenStream
 {
-    let input = parse_macro_input!(input as SchemaInput);
-
-    let attrs = input.attrs;
-    let vis = input.vis;
-    let mod_token = input.mod_token;
-    let ident = input.ident;
+    let _input = parse_macro_input!(input as SchemaInput);
 
     let schema = current();
-    let content = match schema_mod_content(schema) {
+
+    let schema_content = match schema_mod_content(&schema) {
         Ok(content) => content,
         Err(e) => { abort_call_site!("{}", e); }
     };
 
-    let mod_defn = quote! {
-        #attrs #vis #mod_token #ident { #content }
-    };
-
-    mod_defn.into()
+    schema_content.into()
 }
 
 fn schema_mod_content(schema: &Schema)
@@ -92,18 +114,17 @@ fn schema_mod_content(schema: &Schema)
     let tables = schema.tables()
         .map_err(SchemaMacroError::ListTables)?;
 
-    let mut stream = TokenStream2::default();
+    let table_mods = tables.iter()
+        .map(|table| {
+            table_mod(schema, table)
+                .map_err(|error| {
+                    let table = table.clone();
+                    SchemaMacroError::LoadTableSchema { table, error }
+                })
+        })
+        .collect::<Result<TokenStream2, SchemaMacroError>>()?;
 
-    for table in tables {
-        let tokens = table_mod(schema, &table)
-            .map_err(|error| {
-                SchemaMacroError::LoadTableSchema { table, error }
-            })?;
-
-        stream.extend(tokens);
-    }
-
-    Ok(stream)
+    Ok(table_mods)
 }
 
 fn table_mod(schema: &Schema, table: &str)
@@ -115,11 +136,14 @@ fn table_mod(schema: &Schema, table: &str)
         .map(table_column_type_alias)
         .collect::<TokenStream2>();
 
+    let primary_key = table_primary_key(&columns);
+
     let table_name = Ident::new_raw(table, Span::mixed_site());
 
     Ok(quote! {
         pub mod #table_name {
             #type_aliases
+            #primary_key
         }
     })
 }
@@ -141,4 +165,29 @@ fn table_column_type_alias(column: &TableColumn) -> TokenStream2 {
     let name = Ident::new_raw(&column.name, Span::mixed_site());
 
     quote! { pub type #name = #type_; }
+}
+
+fn table_primary_key(columns: &[TableColumn]) -> TokenStream2 {
+    let mut pkeys = columns.iter()
+        .filter(|column| column.primary_key_part.is_some())
+        .collect::<Vec<_>>();
+
+    pkeys.sort_by_key(|col| col.primary_key_part);
+
+    // don't generate a pkey type if there are no pkeys
+    if pkeys.len() == 0 {
+        return quote!{}
+    }
+
+    let fields = pkeys.iter()
+        .map(|pkey| {
+            let name = Ident::new_raw(&pkey.name, Span::mixed_site());
+            quote! { pub #name, }
+        })
+        .collect::<TokenStream2>();
+
+    quote! {
+        // #[derive(Debug, Clone, PartialEq, PartialOrd)]
+        pub struct Id(#fields);
+    }
 }

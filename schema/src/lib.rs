@@ -61,9 +61,11 @@ impl Schema {
         let mut columns = Vec::with_capacity(stmt.column_count());
         for i in 0..stmt.column_count() {
             let column = ResultColumn {
-                database_name: stmt.column_database(i).map(|s| s.to_owned()),
-                table_name: stmt.column_table(i).map(|s| s.to_owned()),
-                origin_name: stmt.column_origin(i).map(|s| s.to_owned()),
+                index: i,
+                name: stmt.name(i).map(|s| s.to_owned()),
+                origin_database: stmt.origin_database(i).map(|s| s.to_owned()),
+                origin_table: stmt.origin_table(i).map(|s| s.to_owned()),
+                origin_column: stmt.origin_column(i).map(|s| s.to_owned()),
             };
             columns.push(column);
         }
@@ -131,21 +133,42 @@ impl QueryInfo {
 }
 
 pub struct ResultColumn {
-    database_name: Option<String>,
-    table_name: Option<String>,
-    origin_name: Option<String>,
+    index: usize,
+    name: Option<String>,
+    origin_database: Option<String>,
+    origin_table: Option<String>,
+    origin_column: Option<String>,
 }
 
 impl ResultColumn {
-    pub fn database_name(&self) -> Option<&str> {
-        self.database_name.as_deref()
+    pub fn describe(&self) -> String {
+        if let Some(name) = &self.name {
+            format!("Column '{name}'")
+        } else {
+            let idx1 = self.index + 1;
+            let suffix = match idx1 % 10 {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                _ => "th",
+            };
+            format!("{idx1}{suffix} selected column in query")
+        }
     }
 
-    pub fn table_name(&self) -> Option<&str> {
-        self.table_name.as_deref()
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
-    pub fn origin_name(&self) -> Option<&str> {
-        self.origin_name.as_deref()
+    pub fn origin_database(&self) -> Option<&str> {
+        self.origin_database.as_deref()
+    }
+
+    pub fn origin_table(&self) -> Option<&str> {
+        self.origin_table.as_deref()
+    }
+
+    pub fn origin_column(&self) -> Option<&str> {
+        self.origin_column.as_deref()
     }
 }

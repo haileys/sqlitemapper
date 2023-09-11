@@ -1,6 +1,6 @@
 use derive_syn_parse::Parse;
 use proc_macro::{self, TokenStream};
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{TokenStream as TokenStream2, Ident, Span};
 use proc_macro_error::abort_call_site;
 use quote::quote;
 use syn::{parse_macro_input, LitStr};
@@ -9,6 +9,8 @@ use sqlitemapper_schema::{QueryInfo, ResultColumn};
 
 #[derive(Parse)]
 struct QueryInput {
+    schema: syn::Path,
+    _comma: syn::token::Comma,
     query: LitStr,
 }
 
@@ -18,41 +20,42 @@ pub fn query_impl(input: TokenStream) -> TokenStream {
 
     let info = prepare_query(&query.value());
 
-    let columns = quote_columns_vec(info.columns());
+    let row_type = row_type(&input.schema, &info);
 
     let output: TokenStream2 = quote! {
-        ::sqlitemapper::Query {
-            sql: #query,
-            types: vec![#columns],
-        }
+        ::sqlitemapper::Query::<#row_type>::new_unchecked(#query)
     };
 
     output.into()
 }
 
-fn quote_columns_vec(columns: &[ResultColumn]) -> TokenStream2 {
-    let elements = columns.iter()
-        .map(quote_column_ctor)
-        .map(|expr| quote!{ #expr , })
+fn row_type(schema: &syn::Path, info: &QueryInfo) -> TokenStream2 {
+    let column_types = info.columns()
+        .iter()
+        .map(|col| column_type(schema, col))
+        .map(|ty| quote!{ #ty, })
         .collect::<TokenStream2>();
 
-    quote! { ::std::vec![ #elements ] }
+    quote!{ (#column_types) }
 }
 
-fn quote_column_ctor(_: &ResultColumn) -> TokenStream2 {
-    // let sql_type = match column.sql_type() {
-    //     None => quote! { ::core::option::Option::None },
-    //     Some(ty) => {
-    //         let lit = LitStr::new(ty, Span::mixed_site());
-    //         quote! { ::core::option::Option::Some(#lit) }
-    //     }
-    // };
+fn column_type(schema: &syn::Path, column: &ResultColumn) -> TokenStream2 {
+    let (Some(table_name), Some(column_name), Some(schema_name))
+        = (column.origin_table(), column.origin_column(), column.origin_database())
+        else {
+            let name = column.describe();
+            abort_call_site!("{} is an expression, this is unsupported", name);
+        };
 
-    quote! {
-        ::sqlitemapper::Column {
-            // sql_type: #sql_type,
-        }
+    if schema_name != "main" {
+        let name = column.describe();
+        abort_call_site!("{} is from foreign schema {}, this is unsupported", name, schema_name);
     }
+
+    let table = Ident::new_raw(table_name, Span::mixed_site());
+    let column = Ident::new_raw(column_name, Span::mixed_site());
+
+    quote! { #schema::#table::#column }
 }
 
 fn prepare_query(query: &str) -> QueryInfo {
