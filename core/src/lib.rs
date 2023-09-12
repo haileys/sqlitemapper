@@ -2,7 +2,7 @@ pub mod types;
 
 use from_row::{FromRow, RowReader};
 pub use sqlitemapper_macros::{query, schema};
-use types::{SqlType, SqlTypeList};
+use types::SqlTypeList;
 
 mod from_row;
 

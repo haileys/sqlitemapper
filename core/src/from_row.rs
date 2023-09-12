@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use rusqlite::{Row, Error};
+use rusqlite::{Row, Error, types::ValueRef};
 
-use crate::types::{SqlTypeList, SqlType, ConvertFromSqlType};
+use crate::types::{SqlTypeList, SqlType, ConvertFromSqlType, sql::Nullable};
 
 pub struct RowReader<'a, List> {
     row: &'a Row<'a>,
@@ -27,16 +27,29 @@ impl<'a, List: SqlTypeList> RowReader<'a, List> {
         self.row.get(self.idx)
     }
 
-    pub fn get_text(&self) -> Result<&str, Error> {
-        let value = self.row.get_ref(self.idx)?;
-        let str = value.as_str()?;
-        Ok(str)
+    fn value_ref(&self) -> ValueRef<'a> {
+        self.row.get_ref(self.idx).unwrap()
     }
 
-    pub fn get_blob(&self) -> Result<&[u8], Error> {
-        let value = self.row.get_ref(self.idx)?;
-        let blob = value.as_blob()?;
-        Ok(blob)
+    pub fn get_text(&self) -> Result<&'a str, Error> {
+        Ok(self.value_ref().as_str()?)
+    }
+
+    pub fn get_blob(&self) -> Result<&'a [u8], Error> {
+        Ok(self.value_ref().as_blob()?)
+    }
+
+    pub fn is_null(&self) -> bool {
+        let typ = self.value_ref().data_type();
+        typ == rusqlite::types::Type::Null
+    }
+}
+
+impl<'a, Head: SqlType, Tail: SqlTypeList> RowReader<'a, (Nullable<Head>, Tail)> {
+    /// only call this after checking `is_null`. There's no memory safety
+    /// issues but it will cause errors
+    pub(crate) fn as_nullable_interior(&self) -> RowReader<'a, (Head, Tail)> {
+        RowReader { row: self.row, idx: self.idx, _phantom: PhantomData }
     }
 }
 
@@ -49,66 +62,6 @@ impl<'a, Head: SqlType, Tail: SqlTypeList> RowReader<'a, (Head, Tail)> {
         }
     }
 }
-
-/*
-impl<'a, Tail: SqlTypeList> RowReader<'a, (i64, Tail)> {
-    fn next<T>(self) -> (Result<T, Error>, RowReader<'a, Tail>)
-        where T: ConvertFromSqlType<i64>
-    {
-        let result = self.row.get::<_, i64>(self.idx)
-            .and_then(|sql_value| {
-                T::convert_from_sql_type(sql_value)
-                    .map_err(|e| e.into_rusqlite_error(self.idx))
-            });
-
-        (result, self.next_reader())
-    }
-}
-
-impl<'a, Tail: SqlTypeList> RowReader<'a, (f64, Tail)> {
-    fn next<T>(self) -> (Result<T, Error>, RowReader<'a, Tail>)
-        where T: TryFrom<f64>, T::Error: Debug + Send + Sync + 'static
-    {
-        let result = self.row.get::<_, f64>(self.idx)
-            .and_then(|sql_value| {
-                T::convert_from_sql_type(sql_value)
-                    .map_err(|e| e.into_rusqlite_error(self.idx))
-            });
-
-        (result, self.next_reader())
-    }
-}
-
-impl<'a, Tail: SqlTypeList> RowReader<'a, (&'a str, Tail)> {
-    fn next<T>(self) -> (Result<T, Error>, RowReader<'a, Tail>)
-        where T: FromStr, T::Err: Debug + Send + Sync + 'static
-    {
-        let result = self.row.get_ref(self.idx)
-            .and_then(|sql_value| sql_value.as_str().map_err(Into::into))
-            .and_then(|sql_str| {
-                T::convert_from_sql_type(sql_str)
-                    .map_err(|e| e.into_rusqlite_error(self.idx))
-            });
-
-        (result, self.next_reader())
-    }
-}
-
-impl<'a, Tail: SqlTypeList> RowReader<'a, (&'a [u8], Tail)> {
-    fn next<T>(self) -> (Result<T, Error>, RowReader<'a, Tail>)
-        where T: TryFrom<&'a [u8]>, T::Error: Debug + Send + Sync + 'static
-    {
-        let result = self.row.get_ref(self.idx)
-            .and_then(|sql_value| sql_value.as_blob().map_err(Into::into))
-            .and_then(|sql_blob| {
-                T::convert_from_sql_type(sql_blob)
-                    .map_err(|e| e.into_rusqlite_error(self.idx))
-            });
-
-        (result, self.next_reader())
-    }
-}
-*/
 
 pub trait FromRow<SqlRow: SqlTypeList>: Sized {
     fn from_row<'a>(reader: RowReader<'a, SqlRow>) -> (Result<Self, Error>, RowReader<'a, ()>);
@@ -134,59 +87,3 @@ impl<SqlT, T, SqlTail, TTail> FromRow<(SqlT, SqlTail)> for (T, TTail)
         (result, reader)
     }
 }
-
-/*
-pub trait ConvertList {}
-
-impl ConvertList for () {}
-
-impl<SqlT: SqlType, UserT, Tail: ConvertList> ConvertList for (SqlT, UserT, Tail)
-    where UserT: ConvertFromSqlType<SqlT> {}
-
-pub trait TypeList {}
-impl TypeList for () {}
-impl<T, Tail: TypeList> TypeList for (T, Tail) {}
-
-pub trait ZipTypeLists {
-    type Output: ConvertList;
-}
-impl ZipTypeLists for ((), ()) {
-    type Output = ();
-}
-impl<SqlT, SqlTail, UserT, UserTail> ZipTypeLists for ((SqlT, SqlTail), (UserT, UserTail))
-    where
-        SqlT: SqlType,
-        SqlTail: SqlTypeList,
-        UserT: ConvertFromSqlType<SqlT>,
-        UserTail: TypeList,
-        (SqlTail, UserTail): ZipTypeLists
-{
-    type Output = (SqlT, UserT, <(SqlTail, UserTail) as ZipTypeLists>::Output);
-}
-
-pub trait FromPartialRow<'a, List> where Self: Sized {
-    type Error;
-    type Tail: SqlTypeList;
-    fn from_partial_row(row: RowReader<'a, List>) -> (Result<Self, Self::Error>, RowReader<'a, Self::Tail>);
-}
-
-impl<'a, Tail: SqlTypeList> FromPartialRow<'a, (i64, Tail)> for i64 {
-    type Error = rusqlite::Error;
-    type Tail = Tail;
-
-    fn from_partial_row(row: RowReader<'a, (i64, Tail)>) -> (Result<Self, Self::Error>, RowReader<'a, Self::Tail>) {
-        row.next()
-    }
-}
-
-macro_rules! tuple_row_cons_list {
-    ($head:ty,$($tail:ty,)*) => { ($t, tuple_row_cons_list!($($tail,)*)) };
-    () => { () };
-}
-
-macro_rules! impl_tuple_row {
-    ($($t:ty,)*) => {
-        impl<'a, $($t: ,)*, Tail: SqlTypeList> FromPartialRow<'a>
-    }
-}
-*/

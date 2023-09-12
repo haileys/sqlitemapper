@@ -75,11 +75,13 @@ impl<T> ConvertFromSqlType<Blob> for T
     }
 }
 
-// impl<Inner: SqlType, T: for<'a> ConvertFromSqlType<Inner::RustType<'a>>> ConvertFromSqlType<Nullable<Inner>> for Option<T> {
-//     fn convert_from_sql_type<'a>(value: <Nullable<Inner> as SqlType>::RustType<'a>) -> Result<Self, ConversionError> {
-//         match value {
-//             None => None,
-//             Some(inner) => Some(T::convert_from_sql_type(inner)),
-//         }
-//     }
-// }
+impl<Inner: SqlType, T> ConvertFromSqlType<Nullable<Inner>> for Option<T>
+    where for<'a> T: ConvertFromSqlType<Inner>
+{
+    fn convert_from_sql_type<'a>(value: Option<Inner::RustType<'a>>) -> Result<Option<T>, ConversionError> {
+        match value {
+            None => Ok(None),
+            Some(inner) => T::convert_from_sql_type(inner).map(Some),
+        }
+    }
+}
