@@ -29,15 +29,19 @@ sqlitemapper::schema!{
 fn main() -> Result<(), rusqlite::Error> {
     let mut conn = Connection::open("database.db")?;
 
-    // let users = __query!(nested::schema, "SELECT * FROM users")
-    // let users = query!("SELECT * FROM users")
+    let users = query!(schema, "SELECT id, username FROM users")
+        .bind([])
+        .query_all::<(u64, (String, ()))>(&mut conn)?;
+
     // let users = query!(schema, "SELECT * FROM users");
     //     .bind([])
     //     .query_all(&mut conn)?;
 
-    // for user in users {
-    //     println!("{:?}", user);
-    // }
+    // sqlitemapper::Query::<(String, ())>::new_unchecked("");
+
+    for user in users {
+        println!("{:?}", user);
+    }
 
     Ok(())
 }

@@ -1,21 +1,101 @@
-use rusqlite::types::{ValueRef, FromSqlError, Type};
+use std::marker::PhantomData;
 
-trait Sealed {}
+use rusqlite::Error;
+use rusqlite::types::{ValueRef, FromSqlError, Type, FromSqlResult};
 
-#[allow(private_bounds)]
-pub trait SqlType: Sealed + Sized {}
+use crate::from_row::RowReader;
+use crate::types::SqlTypeList;
 
-impl Sealed for i64 {}
-impl SqlType for i64 {}
+use super::ConvertFromSqlType;
 
-impl Sealed for f64 {}
-impl SqlType for f64 {}
+pub trait SqlType: Sized {
+    type RustType<'a>;
 
-impl<'s> Sealed for &'s str {}
-impl<'s> SqlType for &'s str {}
+    fn read_from_row<'a, T: ConvertFromSqlType<Self>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>);
+}
 
-impl<'s> Sealed for &'s [u8] {}
-impl<'s> SqlType for &'s [u8] {}
+pub struct Integer(PhantomData<()>);
 
-impl<T: Sealed + SqlType> Sealed for Option<T> {}
-impl<T: Sealed + SqlType> SqlType for Option<T> {}
+impl SqlType for Integer {
+    type RustType<'a> = i64;
+
+    fn read_from_row<'a, T: ConvertFromSqlType<Integer>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
+        let value = reader.get_integer()
+            .and_then(|value| {
+                T::convert_from_sql_type(value)
+                    .map_err(|e| e.into_rusqlite_error(reader.column_index()))
+            });
+
+        (value, reader.advance())
+    }
+}
+
+pub struct Real(PhantomData<()>);
+
+impl SqlType for Real {
+    type RustType<'a> = f64;
+
+    fn read_from_row<'a, T: ConvertFromSqlType<Real>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
+        let value = reader.get_real()
+            .and_then(|value| {
+                T::convert_from_sql_type(value)
+                    .map_err(|e| e.into_rusqlite_error(reader.column_index()))
+            });
+
+        (value, reader.advance())
+    }
+}
+
+pub struct Text(PhantomData<()>);
+
+impl SqlType for Text {
+    type RustType<'a> = &'a str;
+
+    fn read_from_row<'a, T: ConvertFromSqlType<Text>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
+        let value = reader.get_text()
+            .and_then(|value| {
+                T::convert_from_sql_type(value)
+                    .map_err(|e| e.into_rusqlite_error(reader.column_index()))
+            });
+
+        (value, reader.advance())
+    }
+}
+
+pub struct Blob(PhantomData<()>);
+
+impl SqlType for Blob {
+    type RustType<'a> = &'a [u8];
+
+    fn read_from_row<'a, T: ConvertFromSqlType<Blob>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
+        let value = reader.get_blob()
+            .and_then(|value| {
+                T::convert_from_sql_type(value)
+                    .map_err(|e| e.into_rusqlite_error(reader.column_index()))
+            });
+
+        (value, reader.advance())
+    }
+}
+
+pub struct Nullable<T: SqlType>(PhantomData<T>);
+
+impl<Inner: SqlType> SqlType for Nullable<Inner> {
+    type RustType<'a> = Option<Inner::RustType<'a>>;
+
+    fn read_from_row<'a, T: ConvertFromSqlType<Nullable<Inner>>, Tail: SqlTypeList>(
+        reader: RowReader<'a, (Self, Tail)>,
+    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
+        todo!();
+    }
+}

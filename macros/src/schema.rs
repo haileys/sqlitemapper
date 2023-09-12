@@ -128,10 +128,11 @@ fn table_mod(schema: &Schema, table: &str)
 
 fn table_column_type_alias(column: &TableColumn) -> TokenStream2 {
     let inherent_type = match column.type_.as_str() {
-        "INT" | "INTEGER" => quote! { ::core::primitive::i64 },
-        "REAL" => quote! { ::core::primitive::f64 },
-        "TEXT" => quote! { ::std::string::String },
-        "BLOB" => quote! { ::std::vec::Vec<::core::u8> },
+        | "INT"
+        | "INTEGER" => quote! { ::sqlitemapper::types::sql::Integer },
+        | "REAL"    => quote! { ::sqlitemapper::types::sql::Real },
+        | "TEXT"    => quote! { ::sqlitemapper::types::sql::Text },
+        | "BLOB"    => quote! { ::sqlitemapper::types::sql::Blob },
         _ => { abort_call_site!("unknown sqlite datatype: {}", column.type_); }
     };
 

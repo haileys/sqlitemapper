@@ -1,10 +1,8 @@
-use std::{marker::PhantomData, str::FromStr};
-use std::fmt::Debug;
+use std::marker::PhantomData;
 
-use rusqlite::{Row, Error, types::Type};
-use thiserror::Error;
+use rusqlite::{Row, Error};
 
-use crate::types::{SqlTypeList, SqlType};
+use crate::types::{SqlTypeList, SqlType, ConvertFromSqlType};
 
 pub struct RowReader<'a, List> {
     row: &'a Row<'a>,
@@ -13,41 +11,37 @@ pub struct RowReader<'a, List> {
 }
 
 impl<'a, List: SqlTypeList> RowReader<'a, List> {
-    pub fn new(row: &'a Row) -> Self {
+    pub(crate) fn new(row: &'a Row) -> Self {
         RowReader { row, idx: 0, _phantom: PhantomData }
     }
-}
 
-#[derive(Error, Debug)]
-#[error("sqlitemapper type conversion error: column index={index}, data_type={data_type}: {error:?}")]
-struct ConversionError<E: Debug> {
-    index: usize,
-    data_type: Type,
-    error: E,
-}
+    pub fn column_index(&self) -> usize  {
+        self.idx
+    }
 
-impl<E: Debug + Send + Sync + 'static> Into<rusqlite::Error> for ConversionError<E> {
-    fn into(self) -> rusqlite::Error {
-        Error::FromSqlConversionFailure(
-            self.index,
-            self.data_type.clone(),
-            Box::new(self)
-        )
+    pub fn get_integer(&self) -> Result<i64, Error> {
+        self.row.get(self.idx)
+    }
+
+    pub fn get_real(&self) -> Result<f64, Error> {
+        self.row.get(self.idx)
+    }
+
+    pub fn get_text(&self) -> Result<&str, Error> {
+        let value = self.row.get_ref(self.idx)?;
+        let str = value.as_str()?;
+        Ok(str)
+    }
+
+    pub fn get_blob(&self) -> Result<&[u8], Error> {
+        let value = self.row.get_ref(self.idx)?;
+        let blob = value.as_blob()?;
+        Ok(blob)
     }
 }
 
 impl<'a, Head: SqlType, Tail: SqlTypeList> RowReader<'a, (Head, Tail)> {
-    fn conversion_error<E>(&self, error: E) -> ConversionError<E>
-        where E: Debug + Send + Sync + 'static
-    {
-        ConversionError {
-            index: self.idx,
-            data_type: self.row.get_ref(self.idx).unwrap().data_type(),
-            error,
-        }
-    }
-
-    fn next_reader(&self) -> RowReader<'a, Tail> {
+    pub fn advance(&self) -> RowReader<'a, Tail> {
         RowReader {
             row: self.row,
             idx: self.idx + 1,
@@ -56,15 +50,15 @@ impl<'a, Head: SqlType, Tail: SqlTypeList> RowReader<'a, (Head, Tail)> {
     }
 }
 
+/*
 impl<'a, Tail: SqlTypeList> RowReader<'a, (i64, Tail)> {
     fn next<T>(self) -> (Result<T, Error>, RowReader<'a, Tail>)
-        where T: TryFrom<i64>, T::Error: Debug + Send + Sync + 'static
+        where T: ConvertFromSqlType<i64>
     {
         let result = self.row.get::<_, i64>(self.idx)
             .and_then(|sql_value| {
-                T::try_from(sql_value).map_err(|e| {
-                    self.conversion_error(e).into()
-                })
+                T::convert_from_sql_type(sql_value)
+                    .map_err(|e| e.into_rusqlite_error(self.idx))
             });
 
         (result, self.next_reader())
@@ -77,9 +71,8 @@ impl<'a, Tail: SqlTypeList> RowReader<'a, (f64, Tail)> {
     {
         let result = self.row.get::<_, f64>(self.idx)
             .and_then(|sql_value| {
-                T::try_from(sql_value).map_err(|e| {
-                    self.conversion_error(e).into()
-                })
+                T::convert_from_sql_type(sql_value)
+                    .map_err(|e| e.into_rusqlite_error(self.idx))
             });
 
         (result, self.next_reader())
@@ -93,9 +86,8 @@ impl<'a, Tail: SqlTypeList> RowReader<'a, (&'a str, Tail)> {
         let result = self.row.get_ref(self.idx)
             .and_then(|sql_value| sql_value.as_str().map_err(Into::into))
             .and_then(|sql_str| {
-                T::from_str(sql_str).map_err(|e| {
-                    self.conversion_error(e).into()
-                })
+                T::convert_from_sql_type(sql_str)
+                    .map_err(|e| e.into_rusqlite_error(self.idx))
             });
 
         (result, self.next_reader())
@@ -108,30 +100,42 @@ impl<'a, Tail: SqlTypeList> RowReader<'a, (&'a [u8], Tail)> {
     {
         let result = self.row.get_ref(self.idx)
             .and_then(|sql_value| sql_value.as_blob().map_err(Into::into))
-            .and_then(|sql_value| {
-                T::try_from(sql_value).map_err(|e| {
-                    self.conversion_error(e).into()
-                })
+            .and_then(|sql_blob| {
+                T::convert_from_sql_type(sql_blob)
+                    .map_err(|e| e.into_rusqlite_error(self.idx))
             });
 
         (result, self.next_reader())
     }
 }
+*/
 
-pub trait ConvertFromSqlType<SqlT: SqlType> {}
+pub trait FromRow<SqlRow: SqlTypeList>: Sized {
+    fn from_row<'a>(reader: RowReader<'a, SqlRow>) -> (Result<Self, Error>, RowReader<'a, ()>);
+}
 
-impl<T> ConvertFromSqlType<i64> for T
-    where T: TryFrom<i64>, T::Error: Debug + Send + Sync + 'static {}
+impl FromRow<()> for () {
+    fn from_row<'a>(reader: RowReader<'a, ()>) -> (Result<Self, Error>, RowReader<'a, ()>) {
+        (Ok(()), reader)
+    }
+}
 
-impl<T> ConvertFromSqlType<f64> for T
-    where T: TryFrom<f64>, T::Error: Debug + Send + Sync + 'static {}
+impl<SqlT, T, SqlTail, TTail> FromRow<(SqlT, SqlTail)> for (T, TTail)
+    where
+        SqlT: SqlType,
+        SqlTail: SqlTypeList,
+        T: ConvertFromSqlType<SqlT>,
+        TTail: FromRow<SqlTail>,
+{
+    fn from_row<'a>(reader: RowReader<'a, (SqlT, SqlTail)>) -> (Result<(T, TTail), Error>, RowReader<'a, ()>) {
+        let (head, reader) = SqlT::read_from_row::<T, _>(reader);
+        let (tail, reader) = TTail::from_row(reader);
+        let result = head.and_then(|head| tail.map(|tail| (head, tail)));
+        (result, reader)
+    }
+}
 
-impl<'a, T> ConvertFromSqlType<&'a str> for T
-    where T: FromStr, T::Err: Debug + Send + Sync + 'static {}
-
-impl<'a, T> ConvertFromSqlType<&'a [u8]> for T
-    where T: TryFrom<&'a [u8]>, T::Error: Debug + Send + Sync + 'static {}
-
+/*
 pub trait ConvertList {}
 
 impl ConvertList for () {}
@@ -185,3 +189,4 @@ macro_rules! impl_tuple_row {
         impl<'a, $($t: ,)*, Tail: SqlTypeList> FromPartialRow<'a>
     }
 }
+*/

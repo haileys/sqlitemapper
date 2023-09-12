@@ -1,5 +1,6 @@
 pub mod types;
 
+use from_row::{FromRow, RowReader};
 pub use sqlitemapper_macros::{query, schema};
 use types::{SqlType, SqlTypeList};
 
@@ -30,21 +31,24 @@ impl<SqlRow: SqlTypeList> Query<SqlRow> {
         }
     }
 
-    // pub fn bind<P: Params>(&self, params: P) -> BoundQuery<SqlType, P> {
-    //     BoundQuery { query: *self, params }
-    // }
+    pub fn bind<P: Params>(&self, params: P) -> BoundQuery<SqlRow, P> {
+        BoundQuery { query: *self, params }
+    }
 }
 
-// pub struct BoundQuery<SqlType, ParamsType> {
-//     query: Query<SqlType>,
-//     params: ParamsType,
-// }
+pub struct BoundQuery<SqlRow, ParamsType> {
+    query: Query<SqlRow>,
+    params: ParamsType,
+}
 
-// impl<RowType: FromRow, ParamsType: Params> BoundQuery<RowType, ParamsType> {
-//     pub fn query_all(self, conn: &mut Connection) -> Result<Vec<RowType>, Error> {
-//         conn.prepare(self.query.sql)?
-//             .query(self.params)?
-//             .mapped(RowType::from_row)
-//             .collect()
-//     }
-// }
+impl<SqlRow: SqlTypeList, ParamsType: Params> BoundQuery<SqlRow, ParamsType> {
+    pub fn query_all<Row: FromRow<SqlRow>>(self, conn: &mut Connection) -> Result<Vec<Row>, Error> {
+        conn.prepare(self.query.sql)?
+            .query_map(self.params, |row| {
+                let reader = RowReader::<SqlRow>::new(row);
+                let (row, _) = Row::from_row(reader);
+                row
+            })?
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
