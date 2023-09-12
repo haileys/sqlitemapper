@@ -29,9 +29,9 @@ sqlitemapper::schema!{
 fn main() -> Result<(), rusqlite::Error> {
     let mut conn = Connection::open("database.db")?;
 
-    let users = query!(schema, "SELECT id, username FROM users")
+    let users = query!(schema, "SELECT * FROM users")
         .bind([])
-        .query_all::<(u64, (String, ()))>(&mut conn)?;
+        .query_all::<(i64, String, Option<String>, Timestamp)>(&mut conn)?;
 
     // let users = query!(schema, "SELECT * FROM users");
     //     .bind([])

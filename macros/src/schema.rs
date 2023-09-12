@@ -138,7 +138,7 @@ fn table_column_type_alias(column: &TableColumn) -> TokenStream2 {
 
     let type_ = match column.not_null {
         true => inherent_type,
-        false => quote! { ::core::option::Option<#inherent_type> },
+        false => quote! { ::sqlitemapper::types::sql::Nullable<#inherent_type> },
     };
 
     let name = Ident::new_raw(&column.name, Span::mixed_site());
