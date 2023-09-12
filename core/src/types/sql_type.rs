@@ -17,14 +17,13 @@ pub trait SqlType: Sized {
 
     fn read_from_row<'a, T: ConvertFromSqlType<Self>, Tail: SqlTypeList>(
         reader: RowReader<'a, (Self, Tail)>,
-    ) -> (Result<T, Error>, RowReader<'a, Tail>) {
-        let result = Self::map_value_from_row(&reader, |value| {
+    ) -> Result<(T, RowReader<'a, Tail>), Error> {
+        let value = Self::map_value_from_row(&reader, |value| {
             T::convert_from_sql_type(value)
                 .map_err(|e| e.into_rusqlite_error(reader.column_index()))
-        });
+        })?;
 
-        let reader = reader.advance();
-        (result, reader)
+        Ok((value, reader.advance()))
     }
 }
 

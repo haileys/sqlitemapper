@@ -46,8 +46,8 @@ impl<SqlRow: SqlTypeList, ParamsType: Params> BoundQuery<SqlRow, ParamsType> {
         conn.prepare(self.query.sql)?
             .query_map(self.params, |row| {
                 let reader = RowReader::<SqlRow>::new(row);
-                let (row, _) = Row::from_row(reader);
-                row
+                let (row, _) = Row::from_row(reader)?;
+                Ok(row)
             })?
             .collect::<Result<Vec<_>, _>>()
     }

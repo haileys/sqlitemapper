@@ -64,12 +64,12 @@ impl<'a, Head: SqlType, Tail: SqlTypeList> RowReader<'a, (Head, Tail)> {
 }
 
 pub trait FromRow<SqlRow: SqlTypeList>: Sized {
-    fn from_row<'a>(reader: RowReader<'a, SqlRow>) -> (Result<Self, Error>, RowReader<'a, ()>);
+    fn from_row<'a>(reader: RowReader<'a, SqlRow>) -> Result<(Self, RowReader<'a, ()>), Error>;
 }
 
 impl FromRow<()> for () {
-    fn from_row<'a>(reader: RowReader<'a, ()>) -> (Result<Self, Error>, RowReader<'a, ()>) {
-        (Ok(()), reader)
+    fn from_row<'a>(reader: RowReader<'a, ()>) -> Result<(Self, RowReader<'a, ()>), Error> {
+        Ok(((), reader))
     }
 }
 
@@ -80,10 +80,9 @@ impl<SqlT, T, SqlTail, TTail> FromRow<(SqlT, SqlTail)> for (T, TTail)
         T: ConvertFromSqlType<SqlT>,
         TTail: FromRow<SqlTail>,
 {
-    fn from_row<'a>(reader: RowReader<'a, (SqlT, SqlTail)>) -> (Result<(T, TTail), Error>, RowReader<'a, ()>) {
-        let (head, reader) = SqlT::read_from_row::<T, _>(reader);
-        let (tail, reader) = TTail::from_row(reader);
-        let result = head.and_then(|head| tail.map(|tail| (head, tail)));
-        (result, reader)
+    fn from_row<'a>(reader: RowReader<'a, (SqlT, SqlTail)>) -> Result<((T, TTail), RowReader<'a, ()>), Error> {
+        let (head, reader) = SqlT::read_from_row::<T, _>(reader)?;
+        let (tail, reader) = TTail::from_row(reader)?;
+        Ok(((head, tail), reader))
     }
 }
