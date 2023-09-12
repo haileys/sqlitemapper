@@ -1,0 +1,2 @@
+[env]
+SQLITEMAPPER_SCHEMA="example/schema.sql"

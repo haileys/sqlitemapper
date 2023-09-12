@@ -30,13 +30,13 @@ pub fn query_impl(input: TokenStream) -> TokenStream {
 }
 
 fn row_type(schema: &syn::Path, info: &QueryInfo) -> TokenStream2 {
-    let column_types = info.columns()
+    info.columns()
         .iter()
+        .rev()
         .map(|col| column_type(schema, col))
-        .map(|ty| quote!{ #ty, })
-        .collect::<TokenStream2>();
-
-    quote!{ (#column_types) }
+        .fold(quote! { () }, |tail, ty| {
+            quote!{ (#ty, #tail) }
+        })
 }
 
 fn column_type(schema: &syn::Path, column: &ResultColumn) -> TokenStream2 {

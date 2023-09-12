@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 sqlitemapper-macros = { path = "../macros" }
 rusqlite = "0.29"
+thiserror = "1.0.48"
