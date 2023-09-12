@@ -1,0 +1,11 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.30"
+rusqlite = "0.29.0"
+sqlitemapper = { path = "../core" }
+
+# [workspace]
