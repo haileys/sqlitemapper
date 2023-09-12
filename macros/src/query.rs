@@ -35,7 +35,7 @@ fn row_type(schema: &syn::Path, info: &QueryInfo) -> TokenStream2 {
         .rev()
         .map(|col| column_type(schema, col))
         .fold(quote! { () }, |tail, ty| {
-            quote!{ (#ty, #tail) }
+            quote!{ ::sqlitemapper::types::SqlTypeCons<#ty, #tail> }
         })
 }
 

@@ -2,7 +2,7 @@ mod sql_type;
 pub use sql_type::SqlType;
 
 mod sql_type_list;
-pub use sql_type_list::{SqlTypeList, SqlTypeListHead};
+pub use sql_type_list::{SqlTypeList, SqlTypeCons, SqlTypeListHead};
 
 mod convert;
 pub use convert::{ConvertFromSqlType, ConversionError};
