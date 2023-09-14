@@ -251,7 +251,7 @@ fn generate_table_mod(schema: &Schema, table: &str, mut decl: Option<TableModDec
         column_defns.push(Item::Impl(parse_quote! {
             impl ::sqlitemapper::types::Column for #column_ident {
                 type SqlType = #sql_ty;
-                type RustType = #rust_ty;
+                type DomainType = #rust_ty;
             }
         }));
 

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use rusqlite::{Row, Error, types::ValueRef};
 
-use crate::types::{SqlType, ConvertFromSqlType, ColumnList, Column, ColumnCons};
+use crate::types::{SqlType, FromSql, ColumnList, Column, ColumnCons};
 
 pub struct RowReader<'a, List> {
     row: &'a Row<'a>,
@@ -79,11 +79,11 @@ impl<'a, Col: Column, Tail: ColumnList> RowReader<'a, ColumnCons<Col, Tail>> {
         }
     }
 
-    pub fn next(self) -> Result<(Col::RustType, RowReader<'a, Tail>), Error> {
+    pub fn next(self) -> Result<(Col::DomainType, RowReader<'a, Tail>), Error> {
         let value = Col::SqlType::get(self.value_ref())
             .map_err(|_| self.make_invalid_type_error())?;
 
-        let value = Col::RustType::convert_from_sql_type(value)
+        let value = Col::DomainType::from_sql(value)
             .map_err(|e| e.into_rusqlite_error(self.column_index()))?;
 
         Ok((value, self.advance()))
@@ -111,7 +111,7 @@ macro_rules! impl_from_row_for_tuple {
     { ( $( $nam:ident: $typ:ident, )* ) } => {
         impl < $( $typ: Column, )* >
             FromRow< __make_column_cons! { ( $( $typ, )* ) } >
-            for ( $( $typ::RustType, )* )
+            for ( $( $typ::DomainType, )* )
         {
             fn from_row<'a>(
                 reader: RowReader<'a, __make_column_cons! { ( $( $typ, )* ) } >

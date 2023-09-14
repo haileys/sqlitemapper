@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use super::{SqlType, ConvertFromSqlType};
+use super::{SqlType, FromSql};
 
 pub struct ColumnCons<C: Column, Tail: ColumnList>(PhantomData<(C, Tail)>);
 
@@ -18,5 +18,5 @@ impl<C: Column, Tail: ColumnList> ColumnList for ColumnCons<C, Tail> {
 
 pub trait Column: Sized {
     type SqlType: SqlType;
-    type RustType: ConvertFromSqlType<Self::SqlType>;
+    type DomainType: FromSql<Self::SqlType>;
 }

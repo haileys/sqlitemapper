@@ -5,4 +5,4 @@ pub mod sql;
 pub use sql::SqlType;
 
 mod convert;
-pub use convert::{ConvertFromSqlType, ConversionError};
+pub use convert::{FromSql, ConversionError};

@@ -34,55 +34,54 @@ impl ConversionError {
     }
 }
 
-pub trait ConvertFromSqlType<SqlT: SqlType>: Sized {
-    fn convert_from_sql_type<'a>(value: SqlT::RustType<'a>) -> Result<Self, ConversionError>;
+pub trait FromSql<SqlT: SqlType>: Sized {
+    fn from_sql<'a>(value: SqlT::RustType<'a>) -> Result<Self, ConversionError>;
 }
 
-impl<T> ConvertFromSqlType<Integer> for T
+impl<T> FromSql<Integer> for T
     where T: TryFrom<i64>, T::Error: Debug + Send + Sync + 'static
 {
-    fn convert_from_sql_type(value: i64) -> Result<Self, ConversionError> {
+    fn from_sql(value: i64) -> Result<Self, ConversionError> {
         value.try_into().map_err(|err|
             ConversionError::new::<T, _>(Type::Integer, err))
     }
 }
 
-impl<T> ConvertFromSqlType<Real> for T
+impl<T> FromSql<Real> for T
     where T: TryFrom<f64>, T::Error: Debug + Send + Sync + 'static
 {
-    fn convert_from_sql_type(value: f64) -> Result<Self, ConversionError> {
+    fn from_sql(value: f64) -> Result<Self, ConversionError> {
         value.try_into().map_err(|err|
             ConversionError::new::<T, _>(Type::Real, err))
     }
 }
 
-impl<T> ConvertFromSqlType<Text> for T
+impl<T> FromSql<Text> for T
     where T: FromStr, T::Err: Debug + Send + Sync + 'static
 {
-    fn convert_from_sql_type<'a>(value: &'a str) -> Result<Self, ConversionError> {
+    fn from_sql<'a>(value: &'a str) -> Result<Self, ConversionError> {
         value.parse().map_err(|err|
             ConversionError::new::<T, _>(Type::Text, err))
     }
 }
 
-impl<T> ConvertFromSqlType<Blob> for T
+impl<T> FromSql<Blob> for T
     where
         for<'a> T: TryFrom<&'a [u8]>,
         for<'a> <T as TryFrom<&'a [u8]>>::Error: Debug + Send + Sync + 'static,
 {
-    fn convert_from_sql_type<'a>(value: &'a [u8]) -> Result<Self, ConversionError> {
+    fn from_sql<'a>(value: &'a [u8]) -> Result<Self, ConversionError> {
         value.try_into().map_err(|err|
             ConversionError::new::<T, _>(Type::Blob, err))
     }
 }
 
-impl<Inner: SqlType, T> ConvertFromSqlType<Nullable<Inner>> for Option<T>
-    where for<'a> T: ConvertFromSqlType<Inner>
+impl<Inner: SqlType, T: FromSql<Inner>> FromSql<Nullable<Inner>> for Option<T>
 {
-    fn convert_from_sql_type<'a>(value: Option<Inner::RustType<'a>>) -> Result<Option<T>, ConversionError> {
+    fn from_sql<'a>(value: Option<Inner::RustType<'a>>) -> Result<Option<T>, ConversionError> {
         match value {
             None => Ok(None),
-            Some(inner) => T::convert_from_sql_type(inner).map(Some),
+            Some(inner) => T::from_sql(inner).map(Some),
         }
     }
 }
