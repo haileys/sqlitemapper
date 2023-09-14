@@ -1,12 +1,8 @@
-mod sql_type;
-pub use sql_type::SqlType;
+mod column;
+pub use column::{Column, ColumnCons, ColumnList};
 
-mod sql_type_list;
-pub use sql_type_list::{SqlTypeList, SqlTypeCons, SqlTypeListHead};
+pub mod sql;
+pub use sql::SqlType;
 
 mod convert;
 pub use convert::{ConvertFromSqlType, ConversionError};
-
-pub mod sql {
-    pub use super::sql_type::{Integer, Real, Text, Blob, Nullable};
-}

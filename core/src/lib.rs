@@ -2,7 +2,7 @@ pub mod types;
 
 use from_row::{FromRow, RowReader};
 pub use sqlitemapper_macros::{query, schema};
-use types::SqlTypeList;
+use types::ColumnList;
 
 mod from_row;
 
@@ -10,20 +10,20 @@ use std::marker::PhantomData;
 
 use rusqlite::{Params, Connection, Error};
 
-pub struct Query<SqlRow> {
+pub struct Query<Row> {
     sql: &'static str,
-    _phantom: PhantomData<SqlRow>,
+    _phantom: PhantomData<Row>,
 }
 
-impl<SqlRow> Clone for Query<SqlRow> {
+impl<Row> Clone for Query<Row> {
     fn clone(&self) -> Self {
         Query { sql: self.sql, _phantom: PhantomData }
     }
 }
 
-impl<SqlRow> Copy for Query<SqlRow> {}
+impl<Row> Copy for Query<Row> {}
 
-impl<SqlRow: SqlTypeList> Query<SqlRow> {
+impl<Row: ColumnList> Query<Row> {
     pub fn new_unchecked(sql: &'static str) -> Self {
         Query {
             sql,
@@ -31,22 +31,22 @@ impl<SqlRow: SqlTypeList> Query<SqlRow> {
         }
     }
 
-    pub fn bind<P: Params>(&self, params: P) -> BoundQuery<SqlRow, P> {
+    pub fn bind<P: Params>(&self, params: P) -> BoundQuery<Row, P> {
         BoundQuery { query: *self, params }
     }
 }
 
-pub struct BoundQuery<SqlRow, ParamsType> {
-    query: Query<SqlRow>,
-    params: ParamsType,
+pub struct BoundQuery<Row, P> {
+    query: Query<Row>,
+    params: P,
 }
 
-impl<SqlRow: SqlTypeList, ParamsType: Params> BoundQuery<SqlRow, ParamsType> {
-    pub fn query_all<Row: FromRow<SqlRow>>(self, conn: &mut Connection) -> Result<Vec<Row>, Error> {
+impl<Row: ColumnList, P: Params> BoundQuery<Row, P> {
+    pub fn query_all<T: FromRow<Row>>(self, conn: &mut Connection) -> Result<Vec<T>, Error> {
         conn.prepare(self.query.sql)?
             .query_map(self.params, |row| {
-                let reader = RowReader::<SqlRow>::new(row);
-                let (row, _) = Row::from_row(reader)?;
+                let reader = RowReader::<Row>::new(row);
+                let (row, _) = T::from_row(reader)?;
                 Ok(row)
             })?
             .collect::<Result<Vec<_>, _>>()

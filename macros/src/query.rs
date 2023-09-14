@@ -33,13 +33,13 @@ fn row_type(schema: &syn::Path, info: &QueryInfo) -> TokenStream2 {
     info.columns()
         .iter()
         .rev()
-        .map(|col| column_type(schema, col))
-        .fold(quote! { () }, |tail, ty| {
-            quote!{ ::sqlitemapper::types::SqlTypeCons<#ty, #tail> }
+        .map(|col| column_path(schema, col))
+        .fold(quote! { () }, |tail, path| {
+            quote!{ ::sqlitemapper::types::ColumnCons<#path, #tail> }
         })
 }
 
-fn column_type(schema: &syn::Path, column: &ResultColumn) -> TokenStream2 {
+fn column_path(schema: &syn::Path, column: &ResultColumn) -> TokenStream2 {
     let (Some(table_name), Some(column_name), Some(schema_name))
         = (column.origin_table(), column.origin_column(), column.origin_database())
         else {
@@ -55,7 +55,9 @@ fn column_type(schema: &syn::Path, column: &ResultColumn) -> TokenStream2 {
     let table = Ident::new_raw(table_name, Span::mixed_site());
     let column = Ident::new_raw(column_name, Span::mixed_site());
 
-    quote! { #schema::#table::#column }
+    quote! {
+        #schema::#table::columns::#column
+    }
 }
 
 fn prepare_query(query: &str) -> QueryInfo {

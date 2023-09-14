@@ -24,6 +24,7 @@ impl ConversionError {
         ConversionError { data_type, target_type, error }
     }
 
+    #[cold]
     pub fn into_rusqlite_error(self, column_index: usize) -> rusqlite::Error {
         rusqlite::Error::FromSqlConversionFailure(
             column_index,
