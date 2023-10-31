@@ -229,10 +229,9 @@ fn generate_table_mod(schema: &Schema, table: &str, mut decl: Option<TableModDec
     let mut column_types = Vec::<ItemType>::new();
     let mut column_defns = Vec::<Item>::new();
 
-    for column in columns {
+    for column in &columns {
         let column_decl = decl.as_mut()
             .and_then(|decl| decl.column_type_aliases.remove(&column.name));
-
 
         let column_ident = Ident::new_raw(&column.name, Span::mixed_site());
 
@@ -274,11 +273,14 @@ fn generate_table_mod(schema: &Schema, table: &str, mut decl: Option<TableModDec
         .map(|item| item.to_token_stream())
         .collect::<TokenStream2>();
 
+    let record_structs = generate_record_structs(&columns);
+
     parse_quote! {
         pub mod #table {
             pub mod columns {
                 #column_defns
             }
+            #record_structs
             #column_types
             #unknown_items
         }
@@ -301,6 +303,71 @@ fn generate_column_sql_type(column: &TableColumn) -> Box<Type> {
     };
 
     parse_quote! { #type_ }
+}
+
+fn get_single_primary_key(columns: &[TableColumn]) -> Option<&TableColumn> {
+    let mut columns = columns.iter()
+        .filter(|col| col.primary_key_part.is_some());
+
+    let single = columns.next()?;
+    match columns.next() {
+        None => { return Some(single); }
+        Some(_) => {return None; }
+    }
+}
+
+fn primary_key_auto_assignable(columns: &[TableColumn]) -> bool {
+    let Some(pkey) = get_single_primary_key(columns) else {
+        return false;
+    };
+
+    if pkey.type_ == "INTEGER" {
+        // alias for rowid
+        return true;
+    }
+
+    if pkey.has_default {
+        return true;
+    }
+
+    false
+}
+
+fn generate_record_structs(columns: &[TableColumn]) -> TokenStream2 {
+    let fields = columns.iter()
+        .map(generate_record_field)
+        .collect::<TokenStream2>();
+
+    let record_struct = quote! {
+        pub struct Record {
+            #fields
+        }
+    };
+
+    let new_record_struct = if primary_key_auto_assignable(columns) {
+        let fields = columns.iter()
+            .filter(|col| col.primary_key_part.is_none())
+            .map(generate_record_field)
+            .collect::<TokenStream2>();
+
+        quote! {
+            pub struct NewRecord {
+                #fields
+            }
+        }
+    } else {
+        quote!{}
+    };
+
+    quote!{
+        #record_struct
+        #new_record_struct
+    }
+}
+
+fn generate_record_field(column: &TableColumn) -> TokenStream2 {
+    let ident = Ident::new_raw(&column.name, Span::call_site());
+    quote! { pub #ident: <columns::#ident as ::sqlitemapper::types::Column>::DomainType, }
 }
 
 fn table_primary_key(columns: &[TableColumn]) -> TokenStream2 {
